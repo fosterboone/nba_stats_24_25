@@ -1,6 +1,7 @@
 library(tidyverse)
 library(hoopR)
 library(rvest)
+library(ggplot2)
 
 #Table to count the number of possessions each team has in each game 
 load_nba_pbp()%>%
@@ -46,13 +47,26 @@ load_nba_pbp()%>%
   left_join(load_nba_team_box()%>%distinct(team_id,team_name),by=c("team_id"="team_id"))->count_of_possessions
 
 
+poss_vec<-count_of_possessions$total_team_possessions
+poss_diff<-c()
+
+for(i in c(1:length(poss_vec))){
+  if(i%%2==1){
+    poss_diff<-c(poss_diff,-1*(poss_vec[i]-(poss_vec[i+1])))
+  }
+  else{
+    poss_diff<-c(poss_diff,poss_vec[i-1]-(poss_vec[i]))
+  }
+}
+count_of_possessions%>%
+  cbind(tibble(poss_diff))%>%
+  mutate(total_opp_poss=total_team_possessions+poss_diff)%>%
+  select(-poss_diff)->count_of_possessions
+
 #Creates a list of each athletes name and id number
 load_nba_player_box()%>%
   distinct(athlete_display_name,athlete_id)->player_id_list
 
-
-load_nba_player_box()%>%
-  view()
 
 load_nba_player_box() %>%
   select(c(1,7:8, 12:28,47)) %>%
@@ -64,11 +78,11 @@ load_nba_player_box() %>%
   mutate(plus_minus = as.numeric(plus_minus),
          game_id=as.character(game_id),
          usg_rate=(100*48*(field_goals_attempted+.44*free_throws_attempted+turnovers))/(minutes*(team_fga+.44*team_fta+total_team_turnovers)),
-         usg_rate_multiplier=case_when(usg_rate>21~.8,
+         usg_rate_multiplier=case_when(usg_rate>21~.6,
                                      TRUE~1),
          gmsc = (points + 0.4 * field_goals_made - 0.7 * field_goals_attempted - 0.4 * (free_throws_attempted - free_throws_made) + 
       0.7 * offensive_rebounds + 0.3 * defensive_rebounds + steals + 0.7 * assists + 
-      0.7 * blocks - 0.4 * fouls - turnovers)*usg_rate_multiplier,
+      0.7 * blocks - 0.4 * fouls - turnovers),
     ) %>%
   select(-game_id,-team_id)%>%
   group_by(athlete_display_name) %>%
@@ -77,7 +91,8 @@ load_nba_player_box() %>%
          gmsc_below_avg = ifelse(gmsc < avg_gmsc, 1, 0),
          win_percentage_above_avg = sum(gmsc_above_avg & team_winner, na.rm = TRUE) / sum(gmsc_above_avg, na.rm = TRUE),  
          win_percentage_below_avg = sum(gmsc_below_avg & team_winner, na.rm = TRUE) / sum(gmsc_below_avg, na.rm = TRUE),  
-         gmsc_variance = win_percentage_above_avg - win_percentage_below_avg)%>% 
+         gmsc_variance = win_percentage_above_avg - win_percentage_below_avg)->pre_adj_gmsc_var 
+pre_adj_gmsc_var%>%
   summarise(across(everything(), mean, na.rm = TRUE))%>%
   filter(!is.nan(gmsc_variance))%>%
   select(-c(24,26:30))%>%
@@ -85,7 +100,38 @@ load_nba_player_box() %>%
   inner_join(load_nba_player_box()%>%
               select(athlete_display_name,team_display_name)%>%
               distinct(athlete_display_name,team_display_name),by=c("athlete_display_name"="athlete_display_name"))%>%
-  arrange(-gmsc_variance)->adj_gmsc_var_table
+  arrange(-gmsc_variance)%>%
+  select(athlete_display_name,team_display_name,gmsc_variance,everything())->adj_gmsc_var_table_usg_mult
+
+
+  
+
+
+
+
+  
+#Lebron James:
+#On 13 games played a linear model points~total_team_possesion
+
+
+pre_adj_gmsc_var%>%
+  filter(athlete_display_name=="LeBron James")%>%
+  ggplot(aes(total_team_possessions,points))+
+  geom_point()+
+  geom_smooth(se=FALSE,method = "lm")
+
+
+lm(data=pre_adj_gmsc_var%>%filter(athlete_display_name=="LeBron James",points<=35),formula = points~total_team_possessions)->lbj_mod
+
+summary(lbj_mod)
+
+
+
+pre_adj_gmsc_var%>%
+  group_by(team_name)%>%
+  summarise(med_team_poss=median(total_team_possessions),
+            med_opp_poss=median(total_opp_poss))%>%
+  view()
 
 
 #'''RAMP Cleaning and prep'''
@@ -157,105 +203,86 @@ rapm_data <- stints_data %>%
 
 
 ###################################################################
-
+load_nba_schedule()%>%
+  head()%>%
+  view()
 
 library(dplyr)
 library(tidyr)
 
 # Step 1: Load Play-by-Play Data and Team Info
-play_by_play <- load_nba_pbp()
+play_by_play <- load_nba_pbp() %>%
+  mutate(game_id = as.character(game_id))
 
 team_info <- load_nba_schedule() %>%
-  mutate(home_team_id = as.character(home_team_id), 
-         away_team_id = as.character(away_team_id),
-         game_id = as.character(game_id))
+  mutate(
+    home_id = as.character(home_id), 
+    away_id = as.character(away_id), 
+    game_id = as.character(game_id)
+  )
 
 # Step 2: Filter Substitutions and Pivot
-substitutions <- play_by_play %>%
-  filter(type_text == "Substitution") %>%
+
+substitutions<- play_by_play%>%
+  filter(type_text=="Substitution")%>%
   arrange(game_id, qtr, desc(time)) %>%
   pivot_longer(cols = c(athlete_id_1, athlete_id_2), 
                names_to = "sub_type", 
                values_to = "player_id") %>%
-  mutate(player_id = as.character(player_id),
-         game_id = as.character(game_id))
+  mutate(player_id = as.character(player_id))
+
 
 # Step 3: Join Team Info and Assign Team Type
 substitutions <- substitutions %>%
   left_join(team_info, by = "game_id") %>%
+  head(50)%>%
+  view()
   mutate(
     team_type = case_when(
-      player_id == home_team_id ~ "home",
-      player_id == away_team_id ~ "away",
-      TRUE ~ NA_character_
+      player_id %in% play_by_play %>% 
+        filter(game_id == !!game_id) %>%
+        pull(home_id) ~ "home",
+      player_id %in% play_by_play %>% 
+        filter(game_id == !!game_id) %>%
+        pull(away_id) ~ "away",
+      TRUE ~ "bench"
     )
   )
 
-# Check for unmatched players
-unmatched_players <- substitutions %>%
-  filter(is.na(team_type)) %>%
-  distinct(player_id)
-
-if (nrow(unmatched_players) > 0) {
-  print("Unmatched player IDs:")
-  print(unmatched_players)
-} else {
-  print("All players matched correctly!")
-}
 
 # Step 4: Create stint_id
-substitutions <- substitutions %>%
-  group_by(game_id, qtr) %>%
-  mutate(stint_id = cumsum(lag(type_text == "Substitution", default = TRUE))) %>%
-  ungroup()
+
 
 # Step 5: Merge stint_id into Play-by-Play
-pbp_with_stints <- play_by_play %>%
-  left_join(
-    substitutions %>%
-      group_by(game_id, qtr, time) %>%
-      summarize(stint_id = max(stint_id), .groups = "drop"),
-    by = c("game_id", "qtr", "time")
-  ) %>%
-  group_by(game_id, qtr) %>%
-  arrange(desc(time)) %>%
-  fill(stint_id, .direction = "downup") %>%
-  ungroup()
+
 
 # Step 6: Calculate Scoring Margins
-stints_data <- pbp_with_stints %>%
-  group_by(game_id, stint_id) %>%
-  summarize(
-    start_score = first(home_score - away_score),
-    end_score = last(home_score - away_score),
-    margin = end_score - start_score,
-    .groups = "drop"
-  )
+
 
 # Step 7: Identify Players on Court for Each Stint
-stints_players <- substitutions %>%
-  group_by(game_id, stint_id) %>%
-  summarize(players_on_court = list(unique(player_id)), .groups = "drop")
+
 
 # Step 8: Ensure Unique Rows for Substitutions
-substitutions_unique <- substitutions %>%
-  distinct(game_id, player_id, team_type, .keep_all = TRUE)
 
-# Step 9: Prepare RAPM Matrix
+
+# Step 9: Correct RAPM matrix creation
 rapm_data <- stints_players %>%
   unnest(players_on_court) %>%
   rename(player_id = players_on_court) %>%
-  left_join(substitutions_unique %>% select(game_id, player_id, team_type), 
-            by = c("game_id", "player_id")) %>%
+  left_join(
+    substitutions_unique %>% select(game_id, player_id, team_type), 
+    by = c("game_id", "player_id")
+  ) %>%
   mutate(
     player_indicator = case_when(
       team_type == "home" ~ 1,
       team_type == "away" ~ -1,
-      TRUE ~ 0
+      TRUE ~ 0  # Players not involved in this stint
     )
   ) %>%
   pivot_wider(
     names_from = player_id,
     values_from = player_indicator,
-    values_fill = 0  # Players not in stint get 0
+    values_fill = 0  # Ensure non-playing players get 0
   )
+
