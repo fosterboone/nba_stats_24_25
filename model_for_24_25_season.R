@@ -45,6 +45,9 @@ load_nba_pbp()%>%
   summarize(total_team_possessions = sum(new_possession))%>%
   filter(!is.na(team_id))%>%
   left_join(load_nba_team_box()%>%distinct(team_id,team_name),by=c("team_id"="team_id"))->count_of_possessions
+load_nba_pbp()%>%
+  head(50)%>%
+  view()
 
 
 poss_vec<-count_of_possessions$total_team_possessions
@@ -60,8 +63,11 @@ for(i in c(1:length(poss_vec))){
 }
 count_of_possessions%>%
   cbind(tibble(poss_diff))%>%
-  mutate(total_opp_poss=total_team_possessions+poss_diff)%>%
-  select(-poss_diff)->count_of_possessions
+  left_join(load_nba_team_box()%>%select(game_id,team_id,team_home_away),by=c("team_id"="team_id","game_id"="game_id"))%>%
+  mutate(total_opp_poss=total_team_possessions+poss_diff,
+         team_home=case_when(team_home_away=="home"~1,
+                             TRUE~0))%>%
+  select(-poss_diff,-team_home_away)->count_of_possessions
 
 #Creates a list of each athletes name and id number
 load_nba_player_box()%>%
@@ -103,7 +109,8 @@ pre_adj_gmsc_var%>%
   arrange(-gmsc_variance)%>%
   select(athlete_display_name,team_display_name,gmsc_variance,everything())->adj_gmsc_var_table_usg_mult
 
-
+load_nba_player_box()%>%
+  view()
   
 
 
@@ -113,12 +120,19 @@ pre_adj_gmsc_var%>%
 #Lebron James:
 #On 13 games played a linear model points~total_team_possesion
 
+pre_adj_gmsc_var%>%
+  group_by(team_name)%>%
+  summarise(med_team_poss=median(total_team_possessions),
+            med_opp_poss=median(total_opp_poss))%>%
+  view()
+
 
 pre_adj_gmsc_var%>%
-  filter(athlete_display_name=="LeBron James")%>%
+  filter(athlete_display_name=="LeBron James",
+         points<=35)%>%
   ggplot(aes(total_team_possessions,points))+
   geom_point()+
-  geom_smooth(se=FALSE,method = "lm")
+  geom_smooth(method = "lm")
 
 
 lm(data=pre_adj_gmsc_var%>%filter(athlete_display_name=="LeBron James",points<=35),formula = points~total_team_possessions)->lbj_mod
@@ -126,13 +140,32 @@ lm(data=pre_adj_gmsc_var%>%filter(athlete_display_name=="LeBron James",points<=3
 summary(lbj_mod)
 
 
+####
 
-pre_adj_gmsc_var%>%
-  group_by(team_name)%>%
-  summarise(med_team_poss=median(total_team_possessions),
-            med_opp_poss=median(total_opp_poss))%>%
-  view()
+pre_adj_gmsc_var%>%filter(athlete_display_name=="Lauri Markkanen")%>%
+  ggplot(aes(total_team_possessions,points))+
+  geom_point()+
+  geom_smooth(se=FALSE,method = "lm")+
+  theme_bw()
 
+lm(data=pre_adj_gmsc_var%>%filter(athlete_display_name=="Lauri Markkanen"),formula = points~total_team_possessions)->lm_mod
+
+summary(lm_mod)
+
+###
+
+pre_adj_gmsc_var%>%filter(athlete_display_name=="Keyonte George",
+                          total_team_possessions<120)%>%
+  ggplot(aes(total_team_possessions,points))+
+  geom_point()+
+  geom_smooth(se=FALSE)+
+  theme_bw()
+
+pre_adj_gmsc_var%>%filter(athlete_display_name=="Keyonte George",
+                          total_team_possessions<120)%>%
+  mutate(poss_sq=total_team_possessions^2)%>%
+  lm(formula=points~total_team_possessions+poss_sq)%>%
+  summary()
 
 #'''RAMP Cleaning and prep'''
 
