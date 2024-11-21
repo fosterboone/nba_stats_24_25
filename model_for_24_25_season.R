@@ -45,10 +45,10 @@ load_nba_pbp()%>%
   summarize(total_team_possessions = sum(new_possession))%>%
   filter(!is.na(team_id))%>%
   left_join(load_nba_team_box()%>%distinct(team_id,team_name),by=c("team_id"="team_id"))->count_of_possessions
-load_nba_pbp()%>%
-  head(50)%>%
-  view()
 
+load_nba_pbp()%>%
+  head()%>%
+  view()
 
 poss_vec<-count_of_possessions$total_team_possessions
 poss_diff<-c()
@@ -109,9 +109,6 @@ pre_adj_gmsc_var%>%
   arrange(-gmsc_variance)%>%
   select(athlete_display_name,team_display_name,gmsc_variance,everything())->adj_gmsc_var_table_usg_mult
 
-load_nba_player_box()%>%
-  view()
-  
 
 
 
@@ -123,10 +120,40 @@ load_nba_player_box()%>%
 pre_adj_gmsc_var%>%
   group_by(team_name)%>%
   summarise(med_team_poss=median(total_team_possessions),
-            med_opp_poss=median(total_opp_poss))%>%
+            avg_team_poss=mean(total_team_possessions),
+            med_opp_poss=median(total_opp_poss),
+            avg_opp_poss=mean(total_opp_poss))%>%
   view()
 
 
+
+
+count_of_possessions%>%
+  filter(team_name=="Raptors")%>%
+  ggplot(aes(as.factor(team_home),total_team_possessions))+
+  geom_boxplot()+
+  theme_classic()
+
+count_of_possessions%>%
+  filter(team_name=="Raptors")%>%
+  ggplot(aes(as.factor(team_home),total_team_possessions))+
+  geom_boxplot()+
+  geom_point()+
+  geom_abline(intercept = median(count_of_possessions$total_team_possessions),slope = 0)+
+  theme_classic()
+count_of_possessions%>%
+  filter(team_name=="Raptors")%>%
+  ggplot(aes(total_team_possessions))+
+  geom_histogram(bins = 5)
+
+
+
+rap_lin_mod<-lm(data = count_of_possessions%>%filter(team_name=="Raptors"),formula = total_team_possessions~team_home)
+summary(rap_lin_mod)
+
+
+
+#Magic/Raptors/Rockets?
 pre_adj_gmsc_var%>%
   filter(athlete_display_name=="LeBron James",
          points<=35)%>%
@@ -166,6 +193,34 @@ pre_adj_gmsc_var%>%filter(athlete_display_name=="Keyonte George",
   mutate(poss_sq=total_team_possessions^2)%>%
   lm(formula=points~total_team_possessions+poss_sq)%>%
   summary()
+
+
+##############
+
+pre_adj_gmsc_var%>%
+  filter(athlete_display_name=="RJ Barrett")->rj_barret
+
+rj_barret%>%
+  ggplot(aes(total_team_possessions,points))+
+  geom_point(aes(col=as.factor(team_home)))+
+  geom_smooth(method="lm",se=FALSE)+
+  theme_bw()
+
+lm(data=rj_barret,formula = three_point_field_goals_made~total_team_possessions)->rj_bar_threep
+summary(rj_bar_threep)
+lm(data=rj_barret,formula = points~total_team_possessions)->rj_bar_points_mod
+summary(rj_bar_points_mod)
+
+
+pre_adj_gmsc_var%>%
+  filter(athlete_display_name=="RJ Barrett")%>%
+  ggplot(aes(total_team_possessions,three_point_field_goals_made))+
+  geom_point()+
+  geom_smooth(se=FALSE,method="lm")+
+  theme_bw()
+
+
+
 
 #'''RAMP Cleaning and prep'''
 
