@@ -111,28 +111,17 @@ pre_adj_gmsc_var%>%
 
 
 
+#################################################################################################
+#################################################################################################
+
+#Regression Models
 
 
   
-#Lebron James:
-#On 13 games played a linear model points~total_team_possesion
-
-pre_adj_gmsc_var%>%
-  group_by(team_name)%>%
-  summarise(med_team_poss=median(total_team_possessions),
-            avg_team_poss=mean(total_team_possessions),
-            med_opp_poss=median(total_opp_poss),
-            avg_opp_poss=mean(total_opp_poss))%>%
-  view()
 
 
-
-
-count_of_possessions%>%
-  filter(team_name=="Raptors")%>%
-  ggplot(aes(as.factor(team_home),total_team_possessions))+
-  geom_boxplot()+
-  theme_classic()
+#Boxplot shows the difference between the median values and spread of Raptors total
+#possessions in home and away games, while also show the median value for all of them
 
 count_of_possessions%>%
   filter(team_name=="Raptors")%>%
@@ -141,25 +130,30 @@ count_of_possessions%>%
   geom_point()+
   geom_abline(intercept = median(count_of_possessions$total_team_possessions),slope = 0)+
   theme_classic()
+
+#Histogram shows the distribution of the Raptors total possessions across all games
 count_of_possessions%>%
   filter(team_name=="Raptors")%>%
   ggplot(aes(total_team_possessions))+
   geom_histogram(bins = 5)
 
 
-
+#Simple Linear Regression model showing the relationship between home/away status and Raptors Total team possessions
 rap_lin_mod<-lm(data = count_of_possessions%>%filter(team_name=="Raptors"),formula = total_team_possessions~team_home)
 summary(rap_lin_mod)
 
 
 
-#Magic/Raptors/Rockets?
+
+
+
+#
 pre_adj_gmsc_var%>%
   filter(athlete_display_name=="LeBron James",
          points<=35)%>%
   ggplot(aes(total_team_possessions,points))+
   geom_point()+
-  geom_smooth(method = "lm")
+  geom_smooth(method = "lm",se=FALSE)
 
 
 lm(data=pre_adj_gmsc_var%>%filter(athlete_display_name=="LeBron James",points<=35),formula = points~total_team_possessions)->lbj_mod
